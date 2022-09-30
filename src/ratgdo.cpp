@@ -47,13 +47,17 @@ void setup(){
     pinMode(STATUS_DOOR, OUTPUT);
     pinMode(STATUS_OBST, OUTPUT);
     pinMode(INPUT_RPM1, INPUT_PULLUP); // set to pullup to add support for reed switches
-    pinMode(INPUT_RPM2, INPUT);
+    pinMode(INPUT_RPM2, INPUT_PULLUP);
     pinMode(INPUT_OBST, INPUT);
 
     attachInterrupt(TRIGGER_OPEN,isrDoorOpen,CHANGE);
     attachInterrupt(TRIGGER_CLOSE,isrDoorClose,CHANGE);
     attachInterrupt(TRIGGER_LIGHT,isrLight,CHANGE);
+    
     attachInterrupt(INPUT_OBST,isrObstruction,FALLING);
+
+    attachInterrupt(INPUT_RPM1, isrRPM1, CHANGE);
+    attachInterrupt(INPUT_RPM2, isrRPM2, CHANGE);
 
     delay(60); // 
     Serial.println("Setup Complete");
@@ -87,34 +91,46 @@ void loop(){
             String macStr = String(macChar);
 
             // send discovery topic(s) for homeassistant
-            Serial.println("Send Cover Config");
-            JsonObject cover = bootstrapManager.getJsonObject();
-            cover["~"] = baseTopic;
-            cover["name"] = deviceName;
-            cover["uniq_id"] = "ratgdo_" + macStr + "_cover";
-            cover["dev_cla"] = "garage";
-            cover["avty_t"] = "~/status";
-            cover["cmd_t"] = "~/command";
-            cover["stat_t"] = "~/status";
-            cover["pl_open"] = "open";
-            cover["pl_cls"] = "close";
-            cover["pl_stop"] = "stop";
-            bootstrapManager.publish(("homeassistant/cover/ratgdo_" + macStr + "/config").c_str(), cover, true);
+            Serial.println("Set Door Cover Config");
+            JsonObject door = bootstrapManager.getJsonObject();
+            door["~"] = baseTopic;
+            door["name"] = deviceName;
+            door["uniq_id"] = "ratgdo_" + macStr + "_cover";
+            door["dev_cla"] = "garage";
+            door["avty_t"] = "~/status";
+            door["cmd_t"] = "~/command";
+            door["stat_t"] = "~/status";
+            door["pl_open"] = "open";
+            door["pl_cls"] = "close";
+            door["pl_stop"] = "stop";
+            bootstrapManager.publish(("homeassistant/cover/ratgdo_" + macStr + "_cover/config").c_str(), door, true);
 
-            Serial.println("Send Obstruction Config");
-            JsonObject binary_sensor = bootstrapManager.getJsonObject();
-            binary_sensor["~"] = baseTopic;
-            binary_sensor["name"] = deviceName + " Obstruction";
-            binary_sensor["uniq_id"] = "ratgdo_" + macStr + "_obstruction";
-            binary_sensor["ic"] = "mdi:garage-alert";
-            binary_sensor["dev_cla"] = "motion";
-            binary_sensor["avty_t"] = "~/status";
-            binary_sensor["stat_t"] = "~/status";
-            binary_sensor["pl_on"] = "obstructed";
-            binary_sensor["pl_off"] = "clear";
-            bootstrapManager.publish(("homeassistant/binary_sensor/ratgdo_" + macStr + "/config").c_str(), binary_sensor, true);
+            Serial.println("Set Obstruction Sensor Config");
+            JsonObject obstruction = bootstrapManager.getJsonObject();
+            obstruction["~"] = baseTopic;
+            obstruction["name"] = deviceName + " Obstruction";
+            obstruction["uniq_id"] = "ratgdo_" + macStr + "_obstruction";
+            obstruction["ic"] = "mdi:garage-alert";
+            obstruction["dev_cla"] = "motion";
+            obstruction["avty_t"] = "~/status";
+            obstruction["stat_t"] = "~/status";
+            obstruction["pl_on"] = "obstructed";
+            obstruction["pl_off"] = "clear";
+            bootstrapManager.publish(("homeassistant/binary_sensor/ratgdo_" + macStr + "_obstruction/config").c_str(), obstruction, true);
 
-            Serial.println("Send Button Config");
+            Serial.println("Set Reed Switch Config");
+            JsonObject reed = bootstrapManager.getJsonObject();
+            reed["~"] = baseTopic;
+            reed["name"] = deviceName + " Reed";
+            reed["uniq_id"] = "ratgdo_" + macStr + "_reed";
+            reed["dev_cla"] = "garage_door";
+            reed["avty_t"] = "~/status";
+            reed["stat_t"] = "~/status";
+            reed["pl_on"] = "reed_open";
+            reed["pl_off"] = "reed_closed";
+            bootstrapManager.publish(("homeassistant/binary_sensor/ratgdo_" + macStr + "_reed/config").c_str(), reed, true);
+
+            Serial.println("Set Light Button Config");
             JsonObject button = bootstrapManager.getJsonObject();
             button["~"] = baseTopic;
             button["name"] = deviceName + " Light";
@@ -122,13 +138,10 @@ void loop(){
             button["avty_t"] = "~/status";
             button["cmd_t"] = "~/command";
             button["payload_press"] = "light";
-            bootstrapManager.publish(("homeassistant/button/ratgdo_" + macStr + "/config").c_str(), button, true);
-
-            // deplay 1s to wait for client to subscribe to config topic before sending "online"
-            delay(1000);
+            bootstrapManager.publish(("homeassistant/button/ratgdo_" + macStr + "_light/config").c_str(), button, true);
 
             // Broadcast that we are online
-            Serial.println("Send online status");
+            Serial.println("Send Online Status");
             bootstrapManager.publish(doorStatusTopic.c_str(), "online", false);
         }
     }
@@ -139,58 +152,52 @@ void loop(){
 }
 
 /*************************** DETECTING THE DOOR STATE ***************************/
+void IRAM_ATTR isrRPM1 () {
+    int state = digitalRead(INPUT_RPM1);
+    if (isrRPM1State == state) {
+        return;
+    }
+
+    unsigned long currentMillis = millis();
+    if (currentMillis - lastRPM1StateUpdate < 2) {
+        return;
+    }
+
+    lastRPM1StateUpdate = currentMillis;
+    isrRPM1State = state;
+    
+    if (isrRPM1State == false && isrRPM2State == false) {
+        counter++;
+    }
+}
+
+void IRAM_ATTR isrRPM2 () {
+    int state = digitalRead(INPUT_RPM2);
+    if (isrRPM2State == state) {
+        return;
+    }
+
+    unsigned long currentMillis = millis();
+    if (currentMillis - lastRPM2StateUpdate < 2) {
+        return;
+    }
+
+    lastRPM2StateUpdate = currentMillis;
+    isrRPM2State = state;
+
+    if (isrRPM1State == false && isrRPM2State == false) {
+        counter--;
+    }
+}
+
 void doorStateLoop(){
-    static bool rotaryEncoderDetected = false;
-    static int counter = 0;
     static int lastCounter = 0;
-    static int lastCounterMillis = 0;
-    static int RPM2_lastState = 1;
-    int RPM2_state = digitalRead(INPUT_RPM2);
-
-    // Handle reed switch
-    // This may need to be debounced, but so far in testing I haven't detected any bounces
-    if(!rotaryEncoderDetected){
-        if(digitalRead(INPUT_RPM1) == LOW){
-            if(doorState != "reed_closed"){
-                Serial.println("Reed switch closed");
-                doorState = "reed_closed";
-                if(isConfigFileOk){
-                    bootstrapManager.publish(doorStatusTopic.c_str(), "reed_closed", false);
-                }
-                digitalWrite(STATUS_DOOR,HIGH);
-            }
-        }else if(doorState != "reed_open"){
-            Serial.println("Reed switch open");
-            doorState = "reed_open";
-            if(isConfigFileOk){
-                bootstrapManager.publish(doorStatusTopic.c_str(), "reed_open", false);
-            }
-            digitalWrite(STATUS_DOOR,LOW);
-        }
-    }
-    // end reed switch handling
-
-    // If the previous and the current state of the RPM2 Signal are different, that means there is a rotary encoder detected and the door is moving
-    if(RPM2_state != RPM2_lastState){
-        rotaryEncoderDetected = true; // this disables the reed switch handler
-        lastCounterMillis = millis();
-
-        // If the RPM2 state is different to the RPM1 state, that means the door is opening
-        // If the two are equal, the door is closing
-        if (digitalRead(INPUT_RPM1) != RPM2_state){
-            counter--; // Door is closing (sprocket spins clockwise when viewed from below)
-        }else{
-            counter++; // Door is opening (sprocket spins counter clockwise when viewed from below)
-        }
-        Serial.print("Door Position: ");
-        Serial.println(counter);
-    }
 
     // Wait 5 pulses before updating to door opening status
-    if(counter - lastCounter > 5){
-        if(doorState != "opening"){
+    if (counter - lastCounter > 5) {
+        if (doorState != "opening") {
             Serial.println("Door Opening...");
-            if(isConfigFileOk){
+            if (isConfigFileOk) {
                 bootstrapManager.publish(doorStatusTopic.c_str(), "opening", false);
             }
         }
@@ -198,10 +205,10 @@ void doorStateLoop(){
         doorState = "opening";
     }
 
-    if(lastCounter - counter > 5){
-        if(doorState != "closing"){
+    if (lastCounter - counter > 5) {
+        if (doorState != "closing") {
             Serial.println("Door Closing...");
-            if(isConfigFileOk){
+            if (isConfigFileOk) {
                 bootstrapManager.publish(doorStatusTopic.c_str(), "closing", false);
             }
         }
@@ -210,29 +217,21 @@ void doorStateLoop(){
     }
 
     // 250 millis after the last rotary encoder pulse, the door is stopped
-    if(millis() - lastCounterMillis > 250){
+    if (millis() - lastRPM2StateUpdate > 250) {
         // if the door was closing, and is now stopped, then the door is closed
-        if(doorState == "closing"){
+        if (doorState == "closing") {
             doorState = "closed";
-            Serial.println("Closed");
-            if(isConfigFileOk){
-                bootstrapManager.publish(doorStatusTopic.c_str(), doorState.c_str(), false);
-            }
-            digitalWrite(STATUS_DOOR,LOW);
+            sendDoorStatus();
+            digitalWrite(STATUS_DOOR, LOW);
         }
 
         // if the door was opening, and is now stopped, then the door is open
-        if(doorState == "opening"){
+        if (doorState == "opening") {
             doorState = "open";
-            Serial.println("Open");
-            if(isConfigFileOk){
-                bootstrapManager.publish(doorStatusTopic.c_str(), doorState.c_str(), false);
-            }
-            digitalWrite(STATUS_DOOR,HIGH);
+            sendDoorStatus();
+            digitalWrite(STATUS_DOOR, HIGH);
         }
     }
-
-    RPM2_lastState = RPM2_state;
 }
 
 /*************************** DRY CONTACT CONTROL OF LIGHT & DOOR ***************************/
@@ -240,6 +239,7 @@ void IRAM_ATTR isrDebounce(const char *type){
     static unsigned long lastOpenDoorTime = 0;
     static unsigned long lastCloseDoorTime = 0;
     static unsigned long lastToggleLightTime = 0;
+    static unsigned long lastToggleReedTime = 0;
     unsigned long currentMillis = millis();
 
     // Prevent ISR during the first 2 seconds after reboot
@@ -265,13 +265,21 @@ void IRAM_ATTR isrDebounce(const char *type){
         }
     }
 
-    if(strcmp(type, "toggleLight") == 0){
+    if(!altReedMode && strcmp(type, "toggleLight") == 0){
         if(digitalRead(TRIGGER_LIGHT) == LOW){
             // save the time of the falling edge
             lastToggleLightTime = currentMillis;
         }else if(currentMillis - lastToggleLightTime > 500 && currentMillis - lastToggleLightTime < 10000){
             // now see if the rising edge was between 500ms and 10 seconds after the falling edge
             dryContactToggleLight = true;
+        }
+    }
+
+    if(altReedMode && strcmp(type, "toggleLight") == 0){
+        if(currentMillis - lastToggleReedTime > 500){
+            // now see if the change was between 500ms prior change
+            lastToggleReedTime = currentMillis;
+            altReedToggle = true;
         }
     }
 }
@@ -302,10 +310,22 @@ void dryContactLoop(){
         closeDoor();
     }
 
-    if(dryContactToggleLight){
+    if(!altReedMode && dryContactToggleLight){
         Serial.println("Dry Contact: toggle the light");
         dryContactToggleLight = false;
         toggleLight();
+    }
+
+    if (altReedMode && altReedToggle && isConfigFileOk) {
+        altReedToggle = false;
+
+        if(digitalRead(TRIGGER_LIGHT) == LOW) {
+            Serial.println("Dry Contact: reed_closed");
+            bootstrapManager.publish(doorStatusTopic.c_str(), "reed_closed", false);
+        } else {
+            Serial.println("Dry Contact: reed_open");
+            bootstrapManager.publish(doorStatusTopic.c_str(), "reed_open", false);
+        }
     }
 }
 
@@ -315,21 +335,15 @@ void IRAM_ATTR isrObstruction(){
 }
 
 void obstructionLoop(){
-    long currentMillis = millis();
-
-    // as long as a low pulse was detected within 8 millis, there is no obstruction
-    if(currentMillis - obstructionTimer > 15){
+    if(millis() - obstructionTimer > 60){
         obstructionDetected();
-    }else{
+    } else {
         obstructionCleared();
     }
 }
 
 void obstructionDetected(){
-    static unsigned long last_interrupt_time = 0;
-    unsigned long interrupt_time = millis();
-    // Anything less than 100ms is a bounce and is ignored
-    if(interrupt_time - last_interrupt_time > 250){
+    if (doorIsObstructed == false) {
         doorIsObstructed = true;
         digitalWrite(STATUS_OBST,HIGH);
 
@@ -339,7 +353,6 @@ void obstructionDetected(){
             bootstrapManager.publish(doorStatusTopic.c_str(), "obstructed", false);
         }
     }
-    last_interrupt_time = interrupt_time;
 }
 
 void obstructionCleared(){
@@ -395,6 +408,9 @@ void callback(char *topic, byte *payload, unsigned int length){
     }else if (doorCommand == "close"){
         Serial.println("MQTT: close the door");
         closeDoor();
+    }else if (doorCommand == "stop"){
+        Serial.println("MQTT: stop the door");
+        stopDoor();
     }else if (doorCommand == "light"){
         Serial.println("MQTT: toggle the light");
         toggleLight();
@@ -438,7 +454,7 @@ void openDoor(){
         Serial.println("]");
 
         transmit(DOOR_CODE[i],19);
-        delay(45);
+        delayLoop(45);
     }
 }
 
@@ -457,7 +473,24 @@ void closeDoor(){
         Serial.println("]");
 
         transmit(DOOR_CODE[i],19);
-        delay(45);
+        delayLoop(45);
+    }
+}
+
+void stopDoor(){
+    if(doorState == "closed" || doorState == "open"){
+        Serial.print("The door is not moving ");
+        Serial.println(doorState);
+        return;
+    }
+
+    for(int i=0; i<7; i++){
+        Serial.print("door_code[");
+        Serial.print(i);
+        Serial.println("]");
+
+        transmit(DOOR_CODE[i],19);
+        delayLoop(45);
     }
 }
 
@@ -468,6 +501,12 @@ void toggleLight(){
         Serial.println("]");
 
         transmit(LIGHT_CODE[i],19);
-        delay(45);
+        delayLoop(45);
+    }
+}
+
+void delayLoop(int count) {
+    for (int i = 0; i < count; i++) {
+        delay(1);
     }
 }

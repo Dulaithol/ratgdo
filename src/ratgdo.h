@@ -49,6 +49,15 @@ bool dryContactDoorOpen = false;
 bool dryContactDoorClose = false;
 bool dryContactToggleLight = false;
 
+bool altReedMode = true;
+bool altReedToggle = false;
+
+unsigned long lastRPM1StateUpdate = 0;
+unsigned long lastRPM2StateUpdate = 0;
+bool isrRPM1State = false;
+bool isrRPM2State = false;
+int counter = 0;
+
 /********************************** FUNCTION DECLARATION *****************************************/
 void callback(char *topic, byte *payload, unsigned int length);
 void manageDisconnections();
@@ -58,6 +67,7 @@ void manageHardwareButton();
 void transmit(byte* payload, unsigned int length);
 void openDoor();
 void closeDoor();
+void stopDoor();
 void toggleLight();
 
 void obstructionLoop();
@@ -69,12 +79,16 @@ void sendDoorStatus();
 void doorStateLoop();
 void dryContactLoop();
 
+void delayLoop(int count);
+
 /********************************** INTERRUPT SERVICE ROUTINES ***********************************/
 void IRAM_ATTR isrDebounce(const char *type);
 void IRAM_ATTR isrDoorOpen();
 void IRAM_ATTR isrDoorClose();
 void IRAM_ATTR isrLight();
 void IRAM_ATTR isrObstruction();
+void IRAM_ATTR isrRPM1();
+void IRAM_ATTR isrRPM2();
 
 /*** CODES ***/
 const byte DOOR1[] = {0x55,0x01,0x00,0xa1,0x13,0x4d,0x24,0xd3,0x69,0xa4,0x97,0x4a,0x2d,0xbe,0xdf,0x6f,0x1e,0xcf,0x7d};
